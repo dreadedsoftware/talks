@@ -48,4 +48,9 @@ object testData{
     out.flush()
     out.close()
   }
+  def dummy(): Unit = {
+    val out = new PrintWriter("dummy")
+    out.flush()
+    out.close()
+  }
 }

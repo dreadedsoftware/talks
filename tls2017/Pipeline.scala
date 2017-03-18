@@ -26,6 +26,8 @@ object RunPipeline extends App{
   do4()
   do5()
   do6()
+  do7()
+  do8()
   
   def do0(){
     import _0._
@@ -85,16 +87,27 @@ object RunPipeline extends App{
     println("third " + result.foldLeft(0)((a, b) => a + 1))
   }
   
-  implicit def readFib = new Read[Stream, BigInt]{
-    override def apply(uri: URI): Stream[BigInt] = fib(uri)
+  object implicitFib{
+    implicit def readFib = new Read[Stream, BigInt]{
+      override def apply(uri: URI): Stream[BigInt] = fib(uri)
+    }
   }
-  implicit def compIS = new Computation[BigInt, String]{
-    override def apply(in: BigInt): String = in.toString
+  object implicitTri{
+    implicit def readTri = new Read[Stream, BigInt]{
+      override def apply(uri: URI): Stream[BigInt] = tri(uri)
+    }
   }
-  implicit def writeS = new Write[String]{
-    override def apply(in: String): Unit = ()
+  object implicits{
+    implicit def compIS = new Computation[BigInt, String]{
+      override def apply(in: BigInt): String = in.toString
+    }
+    implicit def writeS = new Write[String]{
+      override def apply(in: String): Unit = ()
+    }
   }
   def do4(){
+    import implicits._
+    import implicitFib._
     import _4._
     val pipeline = new Pipeline[Stream, BigInt, String]{}
     
@@ -103,6 +116,8 @@ object RunPipeline extends App{
   }
   
   def do5(){
+    import implicits._
+    import implicitFib._
     import _5._
     val pipeline = Pipeline[Stream, BigInt, String]
     val result = pipeline(uriFib)
@@ -110,6 +125,8 @@ object RunPipeline extends App{
   }
   
   def do6(){
+    import implicits._
+    import implicitFib._
     import _6._
     implicit def readTri = new Read[Stream, BigInt]{
       override def apply(uri: URI): Stream[BigInt] = tri(uri)
@@ -133,6 +150,148 @@ object RunPipeline extends App{
     }
   }
   
+  trait Fib
+  trait Tri
+  implicit def guardFib = new Guard[Fib]{
+    final override def name: String = "fib"
+  }
+  implicit def guardTri = new Guard[Tri]{
+    final override def name: String = "tri"
+  }
+  
+  implicit def pipelineFib: Pipeline.Aux[Fib, BigInt, String, Either[Unit, Stream[Unit]]] = {
+    import implicits._
+    import implicitFib._
+    Pipeline[Fib, Stream, BigInt, String]
+  }
+  implicit def pipelineTri: Pipeline.Aux[Tri, BigInt, String, Either[Unit, Stream[Unit]]] = {
+    import implicits._
+    import implicitTri._
+    Pipeline[Tri, Stream, BigInt, String]
+  }
+  def do7(){
+    val onSuccess = {result: Stream[Unit] =>
+      println("seventh " + result.foldLeft(0)((a, b) => a + 1))
+    }
+    val onFailure = {u: Unit =>
+      println("seventh wrong pipe")
+    }
+    pipelineFib(uriFib).fold(onFailure, onSuccess)
+    pipelineFib(uriTri).fold(onFailure, onSuccess)
+    
+    pipelineTri(uriFib).fold(onFailure, onSuccess)
+    pipelineTri(uriTri).fold(onFailure, onSuccess)
+    
+    def perform(uri: URI): Either[Either[Unit, Stream[Unit]], Stream[Unit]] = {
+      pipelineFib(uri).fold(
+        _ => Left(pipelineTri(uri).fold(
+          _ => Left(()),
+          a => Right(a)
+        )),
+        a => Right(a)
+      )
+    }
+    
+    List(uriFib, uriTri).map(perform).foreach{
+      case Left(Left(())) =>
+        println("seventh ()")
+      case Left(Right(result)) =>
+        println("seventh " + result.foldLeft(0)((a, b) => a + 1))
+      case Right(result) =>
+        println("seventh " + result.foldLeft(0)((a, b) => a + 1))
+    }
+  }
+  
+  //incrementally make sure things compile
+  def do8(){
+    import Pipelines.implicits._
+    import shapeless._
+    //implicit val pipeline1 = pipelineFib :: HNil
+    //implicit val pipeline2 = pipelineTri :: HNil
+    //implicit val pipeline3 = pipelineTri :: pipelineFib :: HNil
+    
+    {
+      val a: Pipeline.Aux[CNil, CNil, CNil, Unit:+:CNil] = implicitly
+    }
+    
+    {
+      val a: Pipeline.Aux[
+        Fib :+: CNil,
+        BigInt :+: CNil,
+        String :+: CNil,
+        Stream[Unit] :+: Unit :+: CNil
+      ] = inductivePipeline[
+        Fib, Stream, BigInt, String,
+        CNil, CNil, CNil, Unit :+: CNil
+      ](pipelineFib, implicitly[Pipeline.Aux[CNil, CNil, CNil, Unit:+:CNil]])
+    }
+    
+    {
+      val a: Pipeline.Aux[
+        Fib :+: CNil,
+        BigInt :+: CNil,
+        String :+: CNil,
+        Stream[Unit] :+: Unit :+: CNil
+      ] = inductivePipeline[
+        Fib, Stream, BigInt, String,
+        CNil, CNil, CNil, Unit :+: CNil
+      ]
+    }
+    
+    {
+      val a: Pipeline.Aux[
+        Fib :+: CNil,
+        BigInt :+: CNil,
+        String :+: CNil,
+        Stream[Unit] :+: Unit :+: CNil
+      ] = inductivePipeline
+    }
+    
+    {
+      val a = inductivePipeline[
+        Fib, Stream, BigInt, String,
+        CNil, CNil, CNil, Unit :+: CNil
+      ]
+    }
+    
+    {
+      val a: Pipeline.Aux[
+        Fib :+: CNil,
+        BigInt :+: CNil,
+        String :+: CNil,
+        Stream[Unit] :+: Unit :+: CNil
+      ] = implicitly
+    }
+    
+    {
+      val a: Pipeline.Aux[
+        Tri :+: Fib :+: CNil,
+        BigInt :+: BigInt :+: CNil,
+        String :+: String :+: CNil,
+        Stream[Unit] :+: Stream[Unit] :+: Unit :+: CNil
+      ] = implicitly
+    }
+    
+    {
+      new Ops(PNil)
+    }
+    
+    {
+      new Ops(PNil).+:(pipelineFib)
+    }
+    
+    {
+      pipelineFib +: PNil
+    }
+    
+    val pipeline = pipelineTri +: pipelineFib +: PNil
+    
+    List(uriFib, uriTri, uriDummy).foreach{uri =>
+      println("eighth " + pipeline(uri))
+    }
+  }
+  
   def uriFib = new File("fibs").toURI
   def uriTri = new File("tris").toURI
+  def uriDummy = new File("dummy").toURI
 }

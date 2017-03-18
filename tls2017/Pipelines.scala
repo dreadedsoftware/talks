@@ -6,7 +6,8 @@ object Pipelines{
   //0. Input -> Processing -> Output
   object _0{
     trait Pipeline[A, B]{
-      final def apply(uri: URI): Stream[Unit] = write(computation(read(uri)))
+      final def apply(uri: URI): Stream[Unit] =
+        write(computation(read(uri)))
       def read(uri: URI): Stream[A]
       def computation(in: Stream[A]): Stream[B]
       def write(in: Stream[B]): Stream[Unit]//in effect, no leaving!
@@ -20,7 +21,8 @@ object Pipelines{
   //1.2 Performs computation
   object _1{
     trait Pipeline[F[_], A, B]{
-      final def apply(uri: URI): F[Unit] = write(computation(read(uri)))
+      final def apply(uri: URI): F[Unit] =
+        write(computation(read(uri)))
       def read(uri: URI): F[A]
       def computation(in: F[A]): F[B]
       def write(in: F[B]): F[Unit]
@@ -118,35 +120,94 @@ object Pipelines{
   //Let's take a look at what we've done
   //- Given an ordered extensional set of Pipelines
   //- Produced a computation that is *at most 1* Pipeline
-  //- Given a Product, Produce a Coproduct
+  //- Given a Product, Produce a Coproduct and an Output type
   //Shapeless  
   
   //7. We need a guard for the if; another Typeclass
   //7.1 We can fill it with some empty types and add it to our ctor
-  trait Guard[T]{
+  trait Guard[-T]{
     def name: String
   }
-  sealed trait Pipeline[T, F[_], A, B]{
-    def apply(uri: URI): F[Unit]
+  sealed trait Pipeline[-T, A, B]{
+    type Out
+    def apply(uri: URI): Out
   }
   object Pipeline{
+    type Out[F[_]] = Either[Unit, F[Unit]]
+    type Default[T, F[_], A, B] =
+      Aux[T, A, B, Out[F]]
+    type Aux[T, A, B, O] = Pipeline[T, A, B]{type Out = O}
+    
     final def apply[T: Guard, F[_]: Functor, A, B](implicit
-      guard: Guard[T],
       read: Read[F, A],
       computation: Computation[A, B],
-      write: Write[B]) = {
+      write: Write[B]): Default[T, F, A, B] = {
+      val G: Guard[T] = implicitly
       val F: Functor[F] = implicitly
-      new Pipeline[T, F, A, B]{
-        override def apply(uri: URI): F[Unit] = {
-          val in = read(uri)
-          val computed = F.map(in)(computation)
-          F.map(computed)(write)
+      new Pipeline[T, A, B]{
+        final override type Out = Pipeline.Out[F]
+        override def apply(uri: URI): Out = {
+          val from = uri.toString
+          if(from.contains(G.name)) Right{
+            val in = read(uri)
+            val computed = F.map(in)(computation)
+            F.map(computed)(write)
+          } else Left(())
         }
       }
     }
   }
-  
+  //The Out pattern allows type level computations; functions of types
+  //The Aux pattern gets around a compiler inconvenience
   
   //8. Products to Coproducts
-  
+  object implicits{
+    import shapeless._
+    import shapeless.ops.hlist._
+ 
+    //pitfall!!! if this is a val Ops won't work
+    implicit def PNil: Pipeline.Aux[CNil, CNil, CNil, Unit:+:CNil] = {
+      new Pipeline[CNil, CNil, CNil]{
+        type Out = Unit:+:CNil
+        override def apply(uri: URI): Out = Inl(())
+      }
+    }
+    
+    implicit def inductivePipeline[
+      TH, F[_], AH, BH,
+      TT <: Coproduct, AT <: Coproduct, BT <: Coproduct, OT <: Coproduct
+    ](implicit
+      head: Pipeline.Aux[TH, AH, BH, Pipeline.Out[F]],
+      tail: Pipeline.Aux[TT, AT, BT, OT]
+    ): Pipeline.Aux[
+      TH:+:TT,
+      AH:+:AT, BH:+:BT,
+      F[Unit]:+:OT
+    ] = {
+      new Pipeline[TH:+:TT, AH:+:AT, BH:+:BT]{
+        final override type Out = F[Unit]:+:OT
+        final override def apply(uri: URI): Out = {
+          head(uri).fold(
+            {_ =>
+              Inr(tail(uri))
+            },
+            s => Inl(s)
+          )
+        }
+      }
+    }
+    
+    implicit class Ops[TT <: Coproduct,
+      AT <: Coproduct, BT <: Coproduct, OT <: Coproduct
+    ](
+      val tail: Pipeline.Aux[TT, AT, BT, OT]
+    ) extends AnyVal{
+      def +:[TH, F[_], AH, BH](
+        head: Pipeline.Aux[TH, AH, BH, Pipeline.Out[F]]
+      ): Pipeline.Aux[TH:+:TT,AH:+:AT, BH:+:BT,F[Unit]:+:OT] =
+        inductivePipeline[
+          TH, F, AH, BH, TT, AT, BT, OT
+        ](head, tail)
+    }
+  }
 }
