@@ -210,4 +210,11 @@ object Pipelines{
         ](head, tail)
     }
   }
+  
+  object spark{
+    trait BoundedFunctor[F[_], B[_]]{
+      def map[U: B, V: B](fu: F[U])(f: U => V): F[V]
+    }
+    trait Functor[F[_]] extends BoundedFunctor[F, Id]
+  }
 }
