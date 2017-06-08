@@ -1,5 +1,4 @@
 object TyDD{
-  println("Go")
   //1. This is a function
   //   keyword, delim, input, delim, output, body
   def f(a: Int, b: Int): String = {
@@ -96,7 +95,6 @@ object TyDD{
   //so whenever you see Functor, just think it has a map operation
   
   def ex3{
-    def rnd = scala.util.Random.nextInt()
     val list = List(rnd, rnd, rnd, rnd, rnd)
     val stream = Stream(rnd, rnd, rnd, rnd, rnd)
     val option = Option(rnd)
@@ -113,7 +111,17 @@ object TyDD{
     println(processData(stream)(f1)(f2)(f3))
   }
   
-  //. A real-world example
+  //4. Now that we can read Type functions we can fully utilize
+  //   many libraries which employ them.
+  //   The most obvious is shapeless.
+  //   https://github.com/milessabin/shapeless#shapeless-232-with-sbt
+  
+  //4.1 HList
+  val justAList = 1 :: 1.1 :: "1" :: Nil
+  import shapeless._
+  val anHList = 1 :: 1.1 :: "1" :: HNil
+  
+  //5. A real-world example
   //   some kind of data processor
   trait Input[F[_], A]{def apply(): F[A]}
   trait Process[F[_], A, B]{def apply(a: F[A]): F[B]}
@@ -126,7 +134,7 @@ object TyDD{
     type Out
     def apply(): Out
   }
-  //.1 A basic implementation would look like this
+  //5.1 A basic implementation would look like this
   object Processor{
     type Aux[A, B, C, D] =
       Processor[A, B, C]{type Out = D}
@@ -147,29 +155,35 @@ object TyDD{
       }
   }
   
-  //. What about more complex implementations
+  //6. What about more complex implementations
   //   Single input with multiple process steps
   //   In pseudocode Processor[A, B1 and B2 and B3, C1 and C2 and C3]
   //   The parts are
   import scala.util.Try
   implicit val input: Input[Try, Int] = new Input[Try, Int]{
-    override def apply(): Try[Int] = Try{
-      scala.util.Random.nextInt()
-    }.filter(i => 0 == (i % 50))
+    override def apply(): Try[Int] = Try{rnd}
   }
   
   implicit val p11: Process[Try, Int, Long] = 
     new Process[Try, Int, Long]{
-      override def apply(in: Try[Int]): Try[Long] = in.map(_.toLong)
+      override def apply(in: Try[Int]): Try[Long] = in.
+        filter(i => 0 == (i % 2)).map{i =>
+          i.toLong * rnd
+        }
     }
   implicit val p12: Process[Try, Int, Double] = 
     new Process[Try, Int, Double]{
-      override def apply(in: Try[Int]): Try[Double] = in.map(_.toDouble)
+      override def apply(in: Try[Int]): Try[Double] = in.
+        filter(i => 1 == (i % 2)).map{i =>
+          i.toDouble * rnd
+        }
     }
   implicit val p13: Process[Try, Int, String] = 
     new Process[Try, Int, String]{
       override def apply(in: Try[Int]): Try[String] = in.map(_.toString)
     }
+  //All together
+  type P1 = Long :: Double :: String :: HNil
   
   implicit val p21: Process[Try, Long, Double] = 
     new Process[Try, Long, Double]{
@@ -183,6 +197,8 @@ object TyDD{
     new Process[Try, String, Array[Byte]]{
       override def apply(in: Try[String]): Try[Array[Byte]] = in.map(_.getBytes())
     }
+  //All together
+  type P2 = Double :: String :: Array[Byte] :: HNil
   
   implicit val qa1: Qa[Try, Int, Long, Double] =
     new Qa[Try, Int, Long, Double]{
@@ -203,4 +219,22 @@ object TyDD{
       def process2(in: Try[Array[Byte]]): Try[Array[Byte]] = in
     }
   
+  //6.1 The most basic implementation
+  val processAllBasic = new Processor[Int, P1, P2]{
+    type Out = Try[Double] :: Try[String] :: Try[Array[Byte]] :: HNil
+    override def apply(): Out = {
+      val in = input()
+      val processed11 = p11(in)
+      val processed12 = p12(in)
+      val processed13 = p13(in)
+      
+      val processed21 = p21(processed11)
+      val processed22 = p22(processed12)
+      val processed23 = p23(processed13)
+      
+      processed21 :: processed22 :: processed23 :: HNil
+    }
+  }
+  
+  def rnd = scala.util.Random.nextInt()
 }
