@@ -14,13 +14,13 @@ object TyDD extends App{
   val opt6 = list6.headOption 
   
   //1. This is a function
-  //   keyword, delim, input, delim, output, body
+  //   keyword, input, output, body
   def f(a: Int, b: Int): String = {
     a.toString + b.toString
   }
   
   //2. This is a function at the type level
-  //   keywords, delim, input, delim, output, body
+  //   keywords, input, output, body
   trait MyTrait[A, B]{type Out}
   object MyTrait{
     def apply[A, B, C](): MyTrait[A, B]{type Out = C} =
@@ -53,7 +53,7 @@ object TyDD extends App{
     }
     
     //3.2 And a little shifting of type parameters we have
-    object ListMapping2{
+    trait ListMapping2{
       def map[A, B](list: List[A])(f: A => B): List[B] = list.map(f)
     }
     //dropped type parameters from outside the trait into the trait
@@ -61,8 +61,8 @@ object TyDD extends App{
     //This is crazy! why not just call map on List?!?!?!
     //What of we are dealing with a type which doesn't have a map
     //or we need a different version of map, say reverse then map
-    object ListReverseMapping{
-      def map[A, B](list: List[A])(f: A => B): List[B] =
+    object ListReverseMapping extends ListMapping2{
+      override def map[A, B](list: List[A])(f: A => B): List[B] =
         list.
           reverse.
           map(f)
@@ -155,10 +155,9 @@ object TyDD extends App{
     
     //4.2 So, we can rearrange without refactoring but not change
     //    the arity of the function. This is where we see the true
-    //    power of the HList. Since every HList no matter how long
-    //    is a subclass of the same type, it allows us to build
-    //    functions which take an arbitrary number of arguments
-    //    of arbitrary types. We'll see what this gives us here
+    //    power of a type level function. Since we can construct types
+    //    we can "fake" a function which has arbitrary arity and
+    //    arbitrary input types.
     def maintenance[F[_]: Zip, H, T](h: F[H], t: F[T]): F[(H, T)] = {
       val F = implicitly[Zip[F]]
       F(h, t)
